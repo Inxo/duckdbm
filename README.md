@@ -16,7 +16,7 @@ rolling back migrations, and listing applied migrations.
 ## Requirements
 
 - Go (Golang) installed.
-- DuckDB installed and accessible via the `github.com/marcboeker/go-duckdb` driver.
+- ~~DuckDB installed and accessible via the `github.com/marcboeker/go-duckdb` driver.~~
 
 ## Usage
 
