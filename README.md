@@ -23,6 +23,11 @@ rolling back migrations, and listing applied migrations.
 ### Build and Run
 
 1. Clone the repository.
+
+   ```bash
+   make build
+   ```
+
 2. Run the application with:
 
    ```bash
