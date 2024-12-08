@@ -14,7 +14,6 @@ import (
 )
 
 const (
-	migrationsDir      = "migrations"
 	migrationsTableSQL = `
 CREATE SEQUENCE seq_id START 1;
 CREATE TABLE IF NOT EXISTS migrations (
@@ -24,6 +23,8 @@ CREATE TABLE IF NOT EXISTS migrations (
 );
 `
 )
+
+var migrationsDir = "migrations"
 
 var dbFile string
 
@@ -108,6 +109,7 @@ func createMigration(name string) {
 
 func applyMigrations() {
 	db, err := connectDB()
+	initialize()
 	if err != nil {
 		fmt.Printf("Failed to connect to the database: %v\n", err)
 		return
