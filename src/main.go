@@ -15,7 +15,7 @@ import (
 
 const (
 	migrationsTableSQL = `
-CREATE SEQUENCE seq_id START 1;
+CREATE SEQUENCE IF NOT EXISTS seq_id START 1;
 CREATE TABLE IF NOT EXISTS migrations (
     id INTEGER PRIMARY KEY DEFAULT nextval('seq_id'),
     filename TEXT NOT NULL UNIQUE,
