@@ -80,7 +80,7 @@ Each file can include a `-- ROLLBACK` section for rollback support.
 
 Example:
 ```sql
--- SQL migration
+-- MIGRATE
 CREATE TABLE users (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL
