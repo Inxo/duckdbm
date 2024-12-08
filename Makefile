@@ -21,3 +21,7 @@ clean:
 	@echo "Cleaning up..."
 	@rm -rf $(BUILD_DIR)
 	@echo "Cleaned."
+
+
+lint:
+	@golangci-lint run -v --disable-all -E errcheck

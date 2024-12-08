@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	_ "github.com/marcboeker/go-duckdb" // Подключение DuckDB драйвера
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -70,7 +69,9 @@ func initialize() {
 		fmt.Printf("Database connection error: %v\n", err)
 		return
 	}
-	defer db.Close()
+	defer func(db *sql.DB) {
+		_ = db.Close()
+	}(db)
 
 	_, err = db.Exec(migrationsTableSQL)
 	if err != nil {
@@ -96,15 +97,15 @@ func createMigration(name string) {
 
 	id := len(files) + 1
 	filename := fmt.Sprintf("%03d_%s.sql", id, name)
-	filepath := filepath.Join(migrationsDir, filename)
+	filePath := filepath.Join(migrationsDir, filename)
 
-	err = os.WriteFile(filepath, []byte("-- MIGRATE\n\n-- ROLLBACK\n"), 0644)
+	err = os.WriteFile(filePath, []byte("-- MIGRATE\n\n-- ROLLBACK\n"), 0644)
 	if err != nil {
 		fmt.Printf("Error creating migration file: %v\n", err)
 		return
 	}
 
-	fmt.Printf("Migration created: %s\n", filepath)
+	fmt.Printf("Migration created: %s\n", filePath)
 }
 
 func applyMigrations() {
@@ -114,7 +115,9 @@ func applyMigrations() {
 		fmt.Printf("Failed to connect to the database: %v\n", err)
 		return
 	}
-	defer db.Close()
+	defer func(db *sql.DB) {
+		_ = db.Close()
+	}(db)
 
 	// Check if the migrations table exists
 	var tableName string
@@ -138,12 +141,12 @@ func applyMigrations() {
 	appliedMigrations := make(map[string]bool)
 	for rows.Next() {
 		var filename string
-		rows.Scan(&filename)
+		_ = rows.Scan(&filename)
 		appliedMigrations[filename] = true
 	}
 
 	// Read migration files from the directory
-	files, err := ioutil.ReadDir(migrationsDir)
+	files, err := os.ReadDir(migrationsDir)
 	if err != nil {
 		fmt.Printf("Failed to read migrations directory: %v\n", err)
 		return
@@ -159,8 +162,8 @@ func applyMigrations() {
 			continue
 		}
 
-		filepath := filepath.Join(migrationsDir, file.Name())
-		sqlContent, err := os.ReadFile(filepath)
+		filePath := filepath.Join(migrationsDir, file.Name())
+		sqlContent, err := os.ReadFile(filePath)
 		if err != nil {
 			fmt.Printf("Failed to read file %s: %v\n", file.Name(), err)
 			continue
@@ -192,7 +195,9 @@ func rollbackLast() {
 		fmt.Printf("Database connection error: %v\n", err)
 		return
 	}
-	defer db.Close()
+	defer func(db *sql.DB) {
+		_ = db.Close()
+	}(db)
 
 	row := db.QueryRow("SELECT filename FROM migrations ORDER BY id DESC LIMIT 1")
 	var filename string
@@ -205,8 +210,8 @@ func rollbackLast() {
 		return
 	}
 
-	filepath := filepath.Join(migrationsDir, filename)
-	sqlContent, err := os.ReadFile(filepath)
+	filePath := filepath.Join(migrationsDir, filename)
+	sqlContent, err := os.ReadFile(filePath)
 	if err != nil {
 		fmt.Printf("Error reading file %s: %v\n", filename, err)
 		return
@@ -240,7 +245,9 @@ func listAppliedMigrations() {
 		fmt.Printf("Failed to connect to the database: %v\n", err)
 		return
 	}
-	defer db.Close()
+	defer func(db *sql.DB) {
+		_ = db.Close()
+	}(db)
 
 	// Check if the migrations table exists
 	var tableName string
