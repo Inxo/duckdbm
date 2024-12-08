@@ -34,7 +34,7 @@ func main() {
 	flag.Parse()
 
 	if len(flag.Args()) < 1 {
-		fmt.Println("Usage: duckdbm [init|create|apply|rollback] [options]")
+		fmt.Println("Usage: duckdbm [init|create|apply|rollback|list] [options]")
 		return
 	}
 

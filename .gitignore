@@ -2,3 +2,4 @@
 build
 migrations
 db.db
+duckdb
