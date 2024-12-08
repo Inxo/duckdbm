@@ -26,7 +26,7 @@ rolling back migrations, and listing applied migrations.
 2. Run the application with:
 
    ```bash
-   go run main.go [command] [options]
+   duckdbm [command] [options]
    ```
 
 ### Commands
@@ -35,19 +35,19 @@ rolling back migrations, and listing applied migrations.
 Creates the migrations table in the specified database file.
 
 ```bash
-go run main.go -db=your_database.db init
+duckdbm -db=your_database.db init
 ```
 
 #### 2. Create a Migration
 Generates a new migration file in the `migrations` directory.
 
 ```bash
-go run main.go -db=your_database.db create migration_name
+duckdbm -db=your_database.db create migration_name
 ```
 
 Example:
 ```bash
-go run main.go -db=your_database.db create add_users_table
+duckdbm -db=your_database.db create add_users_table
 ```
 
 The file `migrations/001_add_users_table.sql` will be created.
@@ -56,21 +56,21 @@ The file `migrations/001_add_users_table.sql` will be created.
 Applies all pending migrations in the `migrations` directory.
 
 ```bash
-go run main.go -db=your_database.db apply
+duckdbm -db=your_database.db apply
 ```
 
 #### 4. Rollback the Last Migration
 Rolls back the last applied migration.
 
 ```bash
-go run main.go -db=your_database.db rollback
+duckdbm -db=your_database.db rollback
 ```
 
 #### 5. List Applied Migrations
 Displays all applied migrations.
 
 ```bash
-go run main.go -db=your_database.db list
+duckdbm -db=your_database.db list
 ```
 
 ### Migration File Structure
@@ -94,7 +94,7 @@ DROP TABLE users;
 
 ```
 .
-├── main.go
+├── duckdbm
 ├── migrations/
 │   ├── 001_add_users_table.sql
 │   └── ...
