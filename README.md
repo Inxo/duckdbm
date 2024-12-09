@@ -65,10 +65,10 @@ duckdbm -db=your_database.db apply
 ```
 
 #### 4. Rollback the Last Migration
-Rolls back the last applied migration.
+Rolls back the last or N applied migrations.
 
 ```bash
-duckdbm -db=your_database.db rollback
+duckdbm -db=your_database.db rollback [N]
 ```
 
 #### 5. List Applied Migrations

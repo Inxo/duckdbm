@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -51,7 +52,16 @@ func main() {
 	case "apply":
 		applyMigrations()
 	case "rollback":
-		rollbackLast()
+		n := 1 // Default to rolling back 1 migration
+		if len(flag.Args()) > 1 {
+			var err error
+			n, err = strconv.Atoi(flag.Args()[1])
+			if err != nil || n <= 0 {
+				fmt.Println("Please provide a valid positive number for rollback count.")
+				return
+			}
+		}
+		rollbackLast(n)
 	case "list":
 		listAppliedMigrations()
 	default:
@@ -189,54 +199,80 @@ func applyMigrations() {
 	}
 }
 
-func rollbackLast() {
+func rollbackLast(n int) {
 	db, err := connectDB()
+	initialize()
 	if err != nil {
-		fmt.Printf("Database connection error: %v\n", err)
+		fmt.Printf("Failed to connect to the database: %v\n", err)
 		return
 	}
 	defer func(db *sql.DB) {
 		_ = db.Close()
 	}(db)
 
-	row := db.QueryRow("SELECT filename FROM migrations ORDER BY id DESC LIMIT 1")
-	var filename string
-	err = row.Scan(&filename)
-	if err == sql.ErrNoRows {
-		fmt.Println("No migrations to rollback.")
-		return
-	} else if err != nil {
-		fmt.Printf("Error getting last migrationи: %v\n", err)
-		return
-	}
-
-	filePath := filepath.Join(migrationsDir, filename)
-	sqlContent, err := os.ReadFile(filePath)
+	// Check how many migrations exist
+	rows, err := db.Query("SELECT id, filename FROM migrations ORDER BY id DESC LIMIT ?", n)
 	if err != nil {
-		fmt.Printf("Error reading file %s: %v\n", filename, err)
+		fmt.Printf("Failed to fetch applied migrations: %v\n", err)
+		return
+	}
+	defer rows.Close()
+
+	var migrations []struct {
+		ID       int
+		Filename string
+	}
+
+	for rows.Next() {
+		var id int
+		var filename string
+		err = rows.Scan(&id, &filename)
+		if err != nil {
+			fmt.Printf("Failed to read migration row: %v\n", err)
+			continue
+		}
+		migrations = append(migrations, struct {
+			ID       int
+			Filename string
+		}{ID: id, Filename: filename})
+	}
+
+	if len(migrations) == 0 {
+		fmt.Println("No migrations to roll back.")
 		return
 	}
 
-	parts := strings.Split(string(sqlContent), "-- ROLLBACK")
-	if len(parts) < 2 {
-		fmt.Printf("Migration %s does not support rollback.\n", filename)
-		return
-	}
+	// Rollback migrations in reverse order
+	for _, migration := range migrations {
+		filePath := filepath.Join(migrationsDir, migration.Filename)
+		sqlContent, err := os.ReadFile(filePath)
+		if err != nil {
+			fmt.Printf("Failed to read migration file %s: %v\n", migration.Filename, err)
+			continue
+		}
 
-	rollbackSQL := strings.TrimSpace(parts[1])
-	_, err = db.Exec(rollbackSQL)
-	if err != nil {
-		fmt.Printf("Migration rollback error %s: %v\n", filename, err)
-		return
-	}
+		parts := strings.Split(string(sqlContent), "-- ROLLBACK")
+		if len(parts) < 2 {
+			fmt.Printf("No rollback section found in migration %s\n", migration.Filename)
+			continue
+		}
 
-	_, err = db.Exec("DELETE FROM migrations WHERE filename = ?", filename)
-	if err != nil {
-		fmt.Printf("Error deleting migration record: %v\n", err)
-		return
-	}
+		rollbackSQL := strings.TrimSpace(parts[1])
 
-	fmt.Printf("Rollback migration: %s\n", filename)
+		_, err = db.Exec(rollbackSQL)
+		if err != nil {
+			fmt.Printf("Failed to rollback migration %s: %v\n", migration.Filename, err)
+			break
+		}
+
+		_, err = db.Exec("DELETE FROM migrations WHERE id = ?", migration.ID)
+		if err != nil {
+			fmt.Printf("Failed to remove migration log %s: %v\n", migration.Filename, err)
+			break
+		}
+
+		fmt.Printf("Rolled back migration: %s\n", migration.Filename)
+	}
 }
 
 func listAppliedMigrations() {
