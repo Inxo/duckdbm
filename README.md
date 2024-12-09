@@ -13,6 +13,7 @@ rolling back migrations, and listing applied migrations.
 - Rollback the last migration or a specified number of migrations.
 - List all applied migrations with timestamps.
 - Support for macros in migration files, substituting environment variables.
+- Load environment variables from a `.env` file.
 
 ## Requirements
 
@@ -36,7 +37,7 @@ rolling back migrations, and listing applied migrations.
 Creates the migrations table in the specified database file.
 
 ```bash
-duckdbm -db=your_database.db init
+go run main.go -db=your_database.db init
 ```
 
 #### 2. Create a Migration
@@ -54,7 +55,7 @@ duckdbm -db=your_database.db create add_users_table
 The file `migrations/001_add_users_table.sql` will be created.
 
 #### 3. Apply Migrations
-Applies all pending migrations in the `migrations` directory.
+Applies all pending migrations to the database.
 
 ```bash
 duckdbm -db=your_database.db apply
@@ -103,28 +104,46 @@ If the environment variable `TABLE_NAME` is set to `users`, the macro `{{TABLE_N
 
 #### Setting Environment Variables
 
-Set the required environment variables before running the migration tool:
+You can define environment variables directly in the terminal or use a `.env` file.
 
-```bash
-export TABLE_NAME=users
+### Using a `.env` File
+
+The tool supports loading environment variables from a `.env` file located in the root directory of your project.
+
+#### Example `.env` File
+
+```env
+TABLE_NAME=users
+COLUMN_NAME=username
 ```
 
-Run the migration command:
+When the tool runs, it will load the `.env` file and use the defined variables to replace macros in migration files.
 
-```bash
-go run main.go -db=your_database.db apply
-```
+#### Precedence of Variables
 
-#### Behavior with Undefined Macros
+- Environment variables set in the system take precedence over `.env` variables.
+- If a macro refers to an undefined variable, it will be replaced with an empty string.
 
-If a macro refers to an undefined environment variable, it will be replaced with an empty string. 
-A warning will be printed to the console.
+### Example Workflow
+
+1. **Set Up Your `.env` File**:
+   ```env
+   TABLE_NAME=users
+   ```
+
+2. **Run the Migration Tool**:
+   ```bash
+   duckdbm -db=your_database.db apply
+   ```
+
+The `{{TABLE_NAME}}` macro in migration files will now be replaced with the value from the `.env` file (`users`).
 
 ### Directory Structure
 
 ```
 .
 ├── duckdbm
+├── .env
 ├── migrations/
 │   ├── 001_add_users_table.sql
 │   └── ...
