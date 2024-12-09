@@ -179,8 +179,15 @@ func applyMigrations() {
 			continue
 		}
 
+		// Replace macros with environment variable values
+		processedContent, err := processMacros(string(sqlContent))
+		if err != nil {
+			fmt.Printf("Failed to process macros in file %s: %v\n", file.Name(), err)
+			return
+		}
+
 		// Split migration SQL and rollback SQL
-		parts := strings.Split(string(sqlContent), "-- ROLLBACK")
+		parts := strings.Split(string(processedContent), "-- ROLLBACK")
 		migrationSQL := strings.TrimSpace(parts[0]) // Only apply the migration section
 
 		_, err = db.Exec(migrationSQL)
@@ -259,7 +266,14 @@ func rollbackLast(n int) {
 
 		rollbackSQL := strings.TrimSpace(parts[1])
 
-		_, err = db.Exec(rollbackSQL)
+		// Replace macros in the rollback SQL
+		processedRollbackSQL, err := processMacros(rollbackSQL)
+		if err != nil {
+			fmt.Printf("Failed to process macros in rollback section of file %s: %v\n", migration.Filename, err)
+			continue
+		}
+
+		_, err = db.Exec(processedRollbackSQL)
 		if err != nil {
 			fmt.Printf("Failed to rollback migration %s: %v\n", migration.Filename, err)
 			break
