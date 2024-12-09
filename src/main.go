@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
+	"github.com/joho/godotenv"
 	_ "github.com/marcboeker/go-duckdb" // Подключение DuckDB драйвера
 	"os"
 	"path/filepath"
@@ -29,6 +30,12 @@ var migrationsDir = "migrations"
 var dbFile string
 
 func main() {
+	// Load environment variables from the .env file
+	err := godotenv.Load()
+	if err != nil {
+		fmt.Println("Warning: No .env file found or failed to load .env file.")
+	}
+
 	// Processing command line arguments
 	flag.StringVar(&dbFile, "db", "duckdb", "Database file (default 'duckdb')")
 	flag.Parse()

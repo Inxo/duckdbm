@@ -13,7 +13,7 @@ all: build
 build:
 	@echo "Building the binary..."
 	@mkdir -p $(BUILD_DIR)
-	@go build -o $(BUILD_DIR)/$(BINARY_NAME) src/main.go
+	@go build -o $(BUILD_DIR)/$(BINARY_NAME) src/*.go
 	@echo "Binary built at $(BUILD_DIR)/$(BINARY_NAME)"
 
 # Clean the build directory
@@ -22,6 +22,8 @@ clean:
 	@rm -rf $(BUILD_DIR)
 	@echo "Cleaned."
 
+test:
+	@go test ./...
 
 lint:
 	@golangci-lint run -v --disable-all -E errcheck
