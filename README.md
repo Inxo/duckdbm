@@ -12,6 +12,7 @@ rolling back migrations, and listing applied migrations.
 - Apply pending migrations to the database.
 - Rollback the last migration or a specified number of migrations.
 - List all applied migrations with timestamps.
+- Sync data via migration. 
 - Support for macros in migration files, substituting environment variables.
 - Load environment variables from a `.env` file.
 
@@ -81,10 +82,53 @@ Displays all applied migrations.
 duckdbm -db=your_database.db list
 ```
 
-### Using Macros in Migration Files
+#### 6. Sync a Migration
 
-Migration files are `.sql` files located in the `migrations` directory. Can include macros in the format `{{ENV_VAR}}`. 
+The `sync` command applies a specific migration without recording it in the `migrations` table. Instead, the migration's application is recorded in a separate `sync` table.
+
+"Possibility to update data from other sources/databases using the migration mechanism. Synchronization can be scheduled.
+
+```bash
+duckdbm -db=your_database.db sync migration_name
+```
+
+Example:
+```bash
+duckdbm -db=your_database.db sync 002_sync_users
+```
+
+Example migration to sync users from Mysql `002_sync_users.sql`:
+```sql
+-- MIGRATE
+INSTALL mysql;
+LOAD mysql;
+CREATE
+SECRET IF NOT EXISTS
+( TYPE MYSQL,
+    HOST '{{MYSQL_HOST}}',
+    PORT 3306,
+    DATABASE {{MYSQL_DB}},
+    USER '{{MYSQL_USER}}',
+    PASSWORD '{{MYSQL_PASSWORD}}');
+ATTACH IF NOT EXISTS 'database={{MYSQL_DB}}' AS mysql_db (TYPE MYSQL);
+
+INSERT OR
+REPLACE INTO users
+SELECT *
+FROM mysql_db.default.users;
+
+-- ROLLBACK
+TRUNCATE TABLE users;
+```
+
+Also, this is useful for re-applying a migration without affecting the migration history.
+
+### Migration Files
+#### Using Macros in Migration Files
+
+Migration files are `.sql` files located in the `migrations` directory. Can include macros in the format `{{ENV_VAR}}`.
 These macros will be replaced with the values of the corresponding environment variables at runtime.
+
 Each file can include a `-- ROLLBACK` section for rollback support.
 
 #### Example Migration File with Macros
@@ -146,6 +190,7 @@ The `{{TABLE_NAME}}` macro in migration files will now be replaced with the valu
 ├── .env
 ├── migrations/
 │   ├── 001_add_users_table.sql
+│   ├── 003_sync_users.sql
 │   └── ...
 ```
 

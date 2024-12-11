@@ -23,6 +23,14 @@ CREATE TABLE IF NOT EXISTS migrations (
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 `
+	syncTableSQL = `
+CREATE SEQUENCE IF NOT EXISTS seq_sync_id START 1;
+CREATE TABLE IF NOT EXISTS sync (
+    id INTEGER PRIMARY KEY DEFAULT nextval('seq_sync_id'),
+    migration_name TEXT NOT NULL,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+`
 )
 
 var migrationsDir = "migrations"
@@ -41,7 +49,7 @@ func main() {
 	flag.Parse()
 
 	if len(flag.Args()) < 1 {
-		fmt.Println("Usage: duckdbm [init|create|apply|rollback|list] [options]")
+		fmt.Println("Usage: duckdbm [init|create|apply|rollback|list|sync] [options]")
 		return
 	}
 
@@ -71,6 +79,12 @@ func main() {
 		rollbackLast(n)
 	case "list":
 		listAppliedMigrations()
+	case "sync":
+		if len(flag.Args()) < 2 {
+			fmt.Println("Please provide the name of the migration to sync.")
+			return
+		}
+		syncMigration(flag.Args()[1])
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 	}
@@ -340,4 +354,100 @@ func listAppliedMigrations() {
 		}
 		fmt.Printf("%d\t%s\t%s\n", id, filename, appliedAt.Format("2006-01-02 15:04:05"))
 	}
+}
+
+// Sync a specific migration without recording in the migrations table
+func syncMigration(migrationName string) {
+	// Check if migrations table exists
+	if !isSyncTableInitialized() {
+		fmt.Println("Error: Migrations table is not initialized. Run 'init' first.")
+		return
+	}
+
+	// Check if sync table exists, create it if not
+	createSyncTable()
+
+	// Locate the migration file
+	migrationFile := filepath.Join("migrations", fmt.Sprintf("%s.sql", migrationName))
+	if _, err := os.Stat(migrationFile); os.IsNotExist(err) {
+		fmt.Printf("Error: Migration file %s not found.\n", migrationFile)
+		return
+	}
+
+	// Read and process the migration file
+	sqlContent, err := os.ReadFile(migrationFile)
+	if err != nil {
+		fmt.Printf("Error reading migration file %s: %v\n", migrationFile, err)
+		return
+	}
+	sqlStatements := strings.Split(string(sqlContent), "-- ROLLBACK")[0]
+	// Replace macros with environment variable values
+	sqlStatements, err = processMacros(string(sqlContent))
+	if err != nil {
+		fmt.Printf("Failed to process macros in file %s: %v\n", migrationFile, err)
+		return
+	}
+
+	// Apply the migration SQL
+	db, err := connectDB()
+	if err != nil {
+		fmt.Printf("Failed to connect to the database: %v\n", err)
+		return
+	}
+	defer func(db *sql.DB) {
+		_ = db.Close()
+	}(db)
+
+	_, err = db.Exec(sqlStatements)
+	if err != nil {
+		fmt.Printf("Error applying migration %s: %v\n", migrationName, err)
+		return
+	}
+
+	// Record the migration in the sync table
+	recordSyncMigration(db, migrationName)
+	fmt.Printf("Successfully synced migration: %s\n", migrationName)
+}
+
+// Create the sync table if it doesn't exist
+func createSyncTable() {
+	db, err := connectDB()
+	if err != nil {
+		fmt.Printf("Failed to connect to the database: %v\n", err)
+		return
+	}
+	defer func(db *sql.DB) {
+		_ = db.Close()
+	}(db)
+
+	_, err = db.Exec(syncTableSQL)
+	if err != nil {
+		fmt.Printf("Error creating sync table: %v\n", err)
+	}
+}
+
+// Record the migration in the sync table
+func recordSyncMigration(db *sql.DB, migrationName string) {
+	_, err := db.Exec(`
+		INSERT INTO sync (migration_name, applied_at)
+		VALUES (?, ?)
+	`, migrationName, time.Now().UTC())
+	if err != nil {
+		fmt.Printf("Error recording synced migration: %v\n", err)
+	}
+}
+
+// Check if the ынтс table is initialized
+func isSyncTableInitialized() bool {
+	db, err := connectDB()
+	if err != nil {
+		fmt.Printf("Failed to connect to the database: %v\n", err)
+		return false
+	}
+	defer func(db *sql.DB) {
+		_ = db.Close()
+	}(db)
+
+	_, err = db.Query(`SELECT name FROM sqlite_master WHERE type='table' AND name='sync'`)
+	return err == nil
 }
