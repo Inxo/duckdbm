@@ -1,0 +1,19 @@
+version: '3'
+services:
+  # App
+  nemedia-duckdbm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nemedia-duckdbm
+#    volumes:
+#      - ./.env:/app/.env
+#      - ./logs/:/app/logs/
+#      - ./data/:/app/data/
+    networks:
+     - nemedia-app-network
+
+#Docker Networks
+networks:
+  nemedia-app-network:
+    driver: bridge
