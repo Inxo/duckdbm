@@ -48,6 +48,13 @@ func main() {
 	flag.StringVar(&dbFile, "db", "duckdb", "Database file (default 'duckdb')")
 	flag.Parse()
 
+	if dbFile == "duckdb" {
+		dbEnv := os.Getenv("DATABASE")
+		if dbEnv != "" {
+			dbFile = dbEnv
+		}
+	}
+
 	if len(flag.Args()) < 1 {
 		fmt.Println("Usage: duckdbm [init|create|apply|rollback|list|sync] [options]")
 		return

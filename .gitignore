@@ -4,3 +4,4 @@ migrations
 db.db
 duckdb
 .env
+data
