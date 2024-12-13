@@ -13,7 +13,7 @@ all: build
 build:
 	@echo "Building the binary..."
 	@mkdir -p $(BUILD_DIR)
-	@go build -ldflags="-extldflags=-static" -o $(BUILD_DIR)/$(BINARY_NAME) src/*.go
+	@go build -o $(BUILD_DIR)/$(BINARY_NAME) src/*.go
 	@echo "Binary built at $(BUILD_DIR)/$(BINARY_NAME)"
 
 # Clean the build directory

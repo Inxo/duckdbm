@@ -9,7 +9,7 @@ ENV TZ Europe/Moscow
 
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 RUN go mod tidy
-RUN CGO_ENABLED=0 make build
+RUN CGO_ENABLED=1 make build
 
 FROM golang:1.23
 RUN apt-get install ca-certificates
