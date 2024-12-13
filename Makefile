@@ -16,6 +16,12 @@ build:
 	@go build -o $(BUILD_DIR)/$(BINARY_NAME) src/*.go
 	@echo "Binary built at $(BUILD_DIR)/$(BINARY_NAME)"
 
+build-linux:
+	@echo "Building the binary..."
+	@mkdir -p $(BUILD_DIR)
+	@go build GOOS=linux GARCH=amd64 -o $(BUILD_DIR)/$(BINARY_NAME) src/*.go
+	@echo "Binary built at $(BUILD_DIR)/$(BINARY_NAME)"
+
 # Clean the build directory
 clean:
 	@echo "Cleaning up..."
