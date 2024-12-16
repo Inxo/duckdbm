@@ -19,7 +19,7 @@ build:
 build-linux:
 	@echo "Building the binary..."
 	@mkdir -p $(BUILD_DIR)
-	@env GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -ldflags "-extldflags -static" -o $(BUILD_DIR)/$(BINARY_NAME) src/*.go
+	@env GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -o $(BUILD_DIR)/$(BINARY_NAME) src/*.go
 	@echo "Binary built at $(BUILD_DIR)/$(BINARY_NAME)"
 
 # Clean the build directory
