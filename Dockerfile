@@ -11,7 +11,7 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 RUN go mod tidy
 RUN CGO_ENABLED=1 make build-linux
 
-FROM debian:bookworm-slim
+FROM golang:1.23
 RUN apt-get update -y && apt-get install -y ca-certificates
 RUN apt-get install -y tzdata
 ENV TZ Europe/Moscow
