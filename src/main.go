@@ -405,6 +405,7 @@ func syncMigration(migrationName string) {
 		_ = db.Close()
 	}(db)
 
+	fmt.Printf("Start sync: %s", migrationName)
 	_, err = db.Exec(sqlStatements)
 	if err != nil {
 		fmt.Printf("Error applying migration %s: %v\n", migrationName, err)
