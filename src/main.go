@@ -16,17 +16,17 @@ import (
 
 const (
 	migrationsTableSQL = `
-CREATE SEQUENCE IF NOT EXISTS seq_id START 1;
-CREATE TABLE IF NOT EXISTS migrations (
-    id INTEGER PRIMARY KEY DEFAULT nextval('seq_id'),
+CREATE SEQUENCE IF NOT EXISTS attached_db.seq_id START 1;
+CREATE TABLE IF NOT EXISTS attached_db.migrations (
+    id INTEGER PRIMARY KEY DEFAULT nextval('attached_db.seq_id'),
     filename TEXT NOT NULL UNIQUE,
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 `
 	syncTableSQL = `
-CREATE SEQUENCE IF NOT EXISTS seq_sync_id START 1;
-CREATE TABLE IF NOT EXISTS sync (
-    id INTEGER PRIMARY KEY DEFAULT nextval('seq_sync_id'),
+CREATE SEQUENCE IF NOT EXISTS attached_db.seq_sync_id START 1;
+CREATE TABLE IF NOT EXISTS attached_db.sync (
+    id INTEGER PRIMARY KEY DEFAULT nextval('attached_db.seq_sync_id'),
     migration_name TEXT NOT NULL,
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -104,7 +104,7 @@ func connectDB() (*sql.DB, error) {
 	}
 
 	// Подключаем базу данных через ATTACH с именем "attached_db"
-	attachQuery := fmt.Sprintf("ATTACH DATABASE '%s' AS attached_db", dbFile)
+	attachQuery := fmt.Sprintf("ATTACH DATABASE '%s' AS attached_db; USE attached_db;", dbFile)
 	_, err = db.Exec(attachQuery)
 	if err != nil {
 		_ = db.Close()
@@ -181,7 +181,7 @@ func applyMigrations() {
 	}
 
 	// Fetch already applied migrations
-	rows, err := db.Query("SELECT filename FROM migrations")
+	rows, err := db.Query("SELECT filename FROM attached_db.migrations")
 	if err != nil {
 		fmt.Printf("Failed to fetch applied migrations: %v\n", err)
 		return
@@ -236,7 +236,7 @@ func applyMigrations() {
 			break
 		}
 
-		_, err = db.Exec("INSERT INTO migrations (filename) VALUES (?)", file.Name())
+		_, err = db.Exec("INSERT INTO attached_db.migrations (filename) VALUES (?)", file.Name())
 		if err != nil {
 			fmt.Printf("Failed to log migration %s: %v\n", file.Name(), err)
 			break
@@ -258,7 +258,7 @@ func rollbackLast(n int) {
 	}(db)
 
 	// Check how many migrations exist
-	rows, err := db.Query("SELECT id, filename FROM migrations ORDER BY id DESC LIMIT ?", n)
+	rows, err := db.Query("SELECT id, filename FROM attached_db.migrations ORDER BY id DESC LIMIT ?", n)
 	if err != nil {
 		fmt.Printf("Failed to fetch applied migrations: %v\n", err)
 		return
@@ -319,7 +319,7 @@ func rollbackLast(n int) {
 			break
 		}
 
-		_, err = db.Exec("DELETE FROM migrations WHERE id = ?", migration.ID)
+		_, err = db.Exec("DELETE FROM attached_db.migrations WHERE id = ?", migration.ID)
 		if err != nil {
 			fmt.Printf("Failed to remove migration log %s: %v\n", migration.Filename, err)
 			break
@@ -351,7 +351,7 @@ func listAppliedMigrations() {
 	}
 
 	// Query applied migrations
-	rows, err := db.Query("SELECT id, filename, applied_at FROM migrations ORDER BY id")
+	rows, err := db.Query("SELECT id, filename, applied_at FROM attached_db.migrations ORDER BY id")
 	if err != nil {
 		fmt.Printf("Failed to fetch applied migrations: %v\n", err)
 		return
@@ -449,7 +449,7 @@ func createSyncTable() {
 // Record the migration in the sync table
 func recordSyncMigration(db *sql.DB, migrationName string) {
 	_, err := db.Exec(`
-		INSERT INTO sync (migration_name, applied_at)
+		INSERT INTO attached_db.sync (migration_name, applied_at)
 		VALUES (?, ?)
 	`, migrationName, time.Now().UTC())
 	if err != nil {

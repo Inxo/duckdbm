@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,9 +15,16 @@ const testDBFile = "test.db"
 
 func setupTestDatabase(t *testing.T, i bool) *sql.DB {
 	dbFile = testDBFile
-	db, err := sql.Open("duckdb", dbFile)
+	db, err := sql.Open("duckdb", "")
 	if err != nil {
 		t.Fatalf("Failed to connect to test database: %v", err)
+	}
+	// Подключаем базу данных через ATTACH с именем "attached_db"
+	attachQuery := fmt.Sprintf("ATTACH DATABASE '%s' AS attached_db; USE attached_db;", dbFile)
+	_, err = db.Exec(attachQuery)
+	if err != nil {
+		_ = db.Close()
+		t.Fatalf("Cannot attach: %v", err)
 	}
 
 	if i != false {
@@ -83,12 +91,12 @@ func TestApplyMigrations(t *testing.T) {
 	migrationFile := filepath.Join(testMigrationsDir, "001_create_test_table.sql")
 	err := os.WriteFile(migrationFile, []byte(`
 		-- MIGRATE
-		CREATE TABLE test_table (
+		CREATE TABLE attached_db.test_table (
 			id INTEGER PRIMARY KEY,
 			name TEXT NOT NULL
 		);
 		-- ROLLBACK
-		DROP TABLE test_table;
+		DROP TABLE attached_db.test_table;
 	`), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write test migration file: %v", err)
@@ -106,7 +114,7 @@ func TestApplyMigrations(t *testing.T) {
 
 	// Verify that the migration was logged
 	var filename string
-	err = db.QueryRow("SELECT filename FROM migrations WHERE filename='001_create_test_table.sql'").Scan(&filename)
+	err = db.QueryRow("SELECT filename FROM attached_db.migrations WHERE filename='001_create_test_table.sql'").Scan(&filename)
 	if err != nil {
 		t.Fatalf("Migration was not logged: %v", err)
 	}
@@ -120,7 +128,7 @@ func TestListAppliedMigrations(t *testing.T) {
 	defer teardownTestDb()
 	initialize()
 
-	_, err := db.Exec("INSERT INTO migrations (filename) VALUES ('001_test_migration.sql')")
+	_, err := db.Exec("INSERT INTO attached_db.migrations (filename) VALUES ('001_test_migration.sql')")
 	if err != nil {
 		t.Fatalf("Failed to insert test migration: %v", err)
 	}
@@ -135,20 +143,20 @@ func TestRollbackLast(t *testing.T) {
 
 	// Prepare sample migrations
 	migration1 := `
-	CREATE TABLE test_table1 (
+	CREATE TABLE attached_db.test_table1 (
 		id INTEGER PRIMARY KEY,
 		name TEXT NOT NULL
 	);
 	-- ROLLBACK
-	DROP TABLE test_table1;
+	DROP TABLE attached_db.test_table1;
 	`
 	migration2 := `
-	CREATE TABLE test_table2 (
+	CREATE TABLE attached_db.test_table2 (
 		id INTEGER PRIMARY KEY,
 		name TEXT NOT NULL
 	);
 	-- ROLLBACK
-	DROP TABLE test_table2;
+	DROP TABLE attached_db.test_table2;
 	`
 
 	// Write migration files
@@ -207,7 +215,7 @@ func TestRollbackLast(t *testing.T) {
 	}
 
 	// Verify no more migrations exist
-	row := db.QueryRow("SELECT COUNT(*) FROM migrations")
+	row := db.QueryRow("SELECT COUNT(*) FROM attached_db.migrations")
 	var count int
 	err = row.Scan(&count)
 	if err != nil {
