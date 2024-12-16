@@ -118,6 +118,12 @@ func TestApplyMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Migration was not logged: %v", err)
 	}
+
+	// Verify mysql load
+	_, err = db.Query("install mysql; load mysql;")
+	if err != nil {
+		t.Fatalf("Mysql not loaded: %v", err)
+	}
 }
 
 func TestListAppliedMigrations(t *testing.T) {
