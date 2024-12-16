@@ -98,7 +98,19 @@ func main() {
 }
 
 func connectDB() (*sql.DB, error) {
-	return sql.Open("duckdb", dbFile)
+	db, err := sql.Open("duckdb", "")
+	if err != nil {
+		return nil, err
+	}
+
+	// Подключаем базу данных через ATTACH с именем "attached_db"
+	attachQuery := fmt.Sprintf("ATTACH DATABASE '%s' AS attached_db", dbFile)
+	_, err = db.Exec(attachQuery)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to attach database: %v", err)
+	}
+	return db, nil
 }
 
 func initialize() {
