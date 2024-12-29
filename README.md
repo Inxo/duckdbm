@@ -38,7 +38,7 @@ rolling back migrations, and listing applied migrations.
 Creates the migrations table in the specified database file.
 
 ```bash
-go run main.go -db=your_database.db init
+duckdbm -db=your_database.db init
 ```
 
 #### 2. Create a Migration
