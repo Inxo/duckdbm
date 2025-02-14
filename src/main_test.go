@@ -139,7 +139,8 @@ func TestListAppliedMigrations(t *testing.T) {
 		t.Fatalf("Failed to insert test migration: %v", err)
 	}
 
-	listAppliedMigrations() // Should display the applied migration in stdout
+	var agrs []string
+	listAppliedMigrations(agrs) // Should display the applied migration in stdout
 }
 
 func TestRollbackLast(t *testing.T) {
