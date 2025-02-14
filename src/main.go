@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/joho/godotenv"
 	_ "github.com/marcboeker/go-duckdb" // Подключение DuckDB драйвера
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,7 +28,7 @@ CREATE TABLE IF NOT EXISTS attached_db.migrations (
 CREATE SEQUENCE IF NOT EXISTS attached_db.seq_sync_id START 1;
 CREATE TABLE IF NOT EXISTS attached_db.sync (
     id INTEGER PRIMARY KEY DEFAULT nextval('attached_db.seq_sync_id'),
-    migration_name TEXT NOT NULL,
+    filename TEXT NOT NULL,
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 `
@@ -85,7 +86,8 @@ func main() {
 		}
 		rollbackLast(n)
 	case "list":
-		listAppliedMigrations()
+		args := os.Args[2:]
+		listAppliedMigrations(args)
 	case "sync":
 		if len(flag.Args()) < 2 {
 			fmt.Println("Please provide the name of the migration to sync.")
@@ -128,6 +130,9 @@ func initialize() {
 		fmt.Printf("Error creating migration table: %v\n", err)
 		return
 	}
+
+	// Check if sync table exists, create it if not
+	createSyncTable()
 
 	fmt.Println("The database has been initialized..")
 }
@@ -329,7 +334,22 @@ func rollbackLast(n int) {
 	}
 }
 
-func listAppliedMigrations() {
+func listAppliedMigrations(args []string) {
+	table := "migrations" // Default table
+	limit := 10           // Default limit
+
+	if len(args) > 1 {
+		table = args[1]
+	}
+
+	if len(args) > 2 {
+		parsedLimit, err := strconv.Atoi(args[2])
+		if err != nil {
+			log.Fatalf("Invalid limit: %v", err)
+		}
+		limit = parsedLimit
+	}
+
 	db, err := connectDB()
 	if err != nil {
 		fmt.Printf("Failed to connect to the database: %v\n", err)
@@ -341,9 +361,10 @@ func listAppliedMigrations() {
 
 	// Check if the migrations table exists
 	var tableName string
-	err = db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='migrations'").Scan(&tableName)
+	q := fmt.Sprintf("SELECT name FROM sqlite_master WHERE type='table' AND name='%s'", table)
+	err = db.QueryRow(q).Scan(&tableName)
 	if err == sql.ErrNoRows {
-		fmt.Println("Migrations table not initialized. Run 'init' first.")
+		fmt.Printf("'%s' table not initialized. Run 'init' first.\n", table)
 		return
 	} else if err != nil {
 		fmt.Printf("Failed to check migrations table: %v\n", err)
@@ -351,7 +372,8 @@ func listAppliedMigrations() {
 	}
 
 	// Query applied migrations
-	rows, err := db.Query("SELECT id, filename, applied_at FROM attached_db.migrations ORDER BY id")
+	query := fmt.Sprintf("SELECT filename, applied_at FROM %s ORDER BY id DESC LIMIT %d", table, limit)
+	rows, err := db.Query(query)
 	if err != nil {
 		fmt.Printf("Failed to fetch applied migrations: %v\n", err)
 		return
@@ -359,7 +381,7 @@ func listAppliedMigrations() {
 	defer rows.Close()
 
 	// Display applied migrations
-	fmt.Println("Applied Migrations:")
+	fmt.Printf("Applied %s:\n", table)
 	fmt.Println("ID\tFilename\t\tApplied At")
 	fmt.Println("------------------------------------------------")
 	for rows.Next() {
@@ -449,7 +471,7 @@ func createSyncTable() {
 // Record the migration in the sync table
 func recordSyncMigration(db *sql.DB, migrationName string) {
 	_, err := db.Exec(`
-		INSERT INTO attached_db.sync (migration_name, applied_at)
+		INSERT INTO attached_db.sync (filename, applied_at)
 		VALUES (?, ?)
 	`, migrationName, time.Now().UTC())
 	if err != nil {
