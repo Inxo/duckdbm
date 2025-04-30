@@ -29,7 +29,7 @@ build:
     - main
 
 unit_test:
-  image: golang:1.23
+  image: golang:1.24
   stage: test
   tags:
     - staff
