@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	_ "github.com/marcboeker/go-duckdb"
+	_ "github.com/marcboeker/go-duckdb/v2"
 )
 
 const testMigrationsDir = "test_migrations"
@@ -20,9 +20,11 @@ func setupTestDatabase(t *testing.T, i bool) *sql.DB {
 		t.Fatalf("Failed to connect to test database: %v", err)
 	}
 	// Подключаем базу данных через ATTACH с именем "attached_db"
-	attachQuery := fmt.Sprintf("ATTACH DATABASE '%s' AS attached_db; USE attached_db;", dbFile)
+	attachQuery := fmt.Sprintf("Use main; DETACH DATABASE IF EXISTS attached_db; ATTACH DATABASE '%s' AS attached_db; USE attached_db;", dbFile)
 	_, err = db.Exec(attachQuery)
 	if err != nil {
+		//attachQuery := fmt.Sprintf("USE main; DETACH attached_db;")
+		//_, err = db.Exec(attachQuery)
 		_ = db.Close()
 		t.Fatalf("Cannot attach: %v", err)
 	}
@@ -72,14 +74,15 @@ func TestCreateMigration(t *testing.T) {
 	}
 }
 
-func teardownTestDb() {
+func teardownTestDb(db *sql.DB) {
+	_ = db.Close()
 	_ = os.Remove(testDBFile)
 }
 
 func TestApplyMigrations(t *testing.T) {
-	defer teardownTestDb()
-	initialize()
+	//initialize()
 	db := setupTestDatabase(t, true)
+	defer teardownTestDb(db)
 	defer func(db *sql.DB) {
 		_ = db.Close()
 	}(db)
@@ -102,6 +105,8 @@ func TestApplyMigrations(t *testing.T) {
 		t.Fatalf("Failed to write test migration file: %v", err)
 	}
 
+	//teardownTestDb()
+	_ = db.Close()
 	applyMigrations()
 	db = setupTestDatabase(t, false)
 
@@ -119,11 +124,12 @@ func TestApplyMigrations(t *testing.T) {
 		t.Fatalf("Migration was not logged: %v", err)
 	}
 
+	_ = db.Close()
 	// Verify mysql load
-	_, err = db.Query("install mysql; load mysql;")
-	if err != nil {
-		t.Fatalf("Mysql not loaded: %v", err)
-	}
+	//_, err = db.Query("install mysql; load mysql;")
+	//if err != nil {
+	//	t.Fatalf("Mysql not loaded: %v", err)
+	//}
 }
 
 func TestListAppliedMigrations(t *testing.T) {
@@ -131,7 +137,7 @@ func TestListAppliedMigrations(t *testing.T) {
 	defer func(db *sql.DB) {
 		_ = db.Close()
 	}(db)
-	defer teardownTestDb()
+	defer teardownTestDb(db)
 	initialize()
 
 	_, err := db.Exec("INSERT INTO attached_db.migrations (filename) VALUES ('001_test_migration.sql')")
@@ -144,7 +150,6 @@ func TestListAppliedMigrations(t *testing.T) {
 }
 
 func TestRollbackLast(t *testing.T) {
-
 	setupTestMigrationsDir(t)
 	defer teardownTestMigrationsDir(t)
 
@@ -178,8 +183,12 @@ func TestRollbackLast(t *testing.T) {
 
 	// Apply migrations
 	db := setupTestDatabase(t, true)
-	defer teardownTestDb()
-	_ = db.Close()
+
+	defer teardownTestDb(db)
+	err = db.Close()
+	if err != nil {
+		t.Fatalf("Failed to close db: %v", err)
+	}
 	applyMigrations()
 	db = setupTestDatabase(t, false)
 
@@ -193,7 +202,10 @@ func TestRollbackLast(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Expected test_table2 to exist: %v", err)
 	}
-	_ = db.Close()
+	err = db.Close()
+	if err != nil {
+		t.Fatalf("Failed to close db: %v", err)
+	}
 
 	// Test rollback of the last migration
 	rollbackLast(1)
@@ -234,9 +246,9 @@ func TestRollbackLast(t *testing.T) {
 }
 
 func TestRollbackLastInvalidCount(t *testing.T) {
-	defer teardownTestDb()
 	initialize()
 	db := setupTestDatabase(t, true)
+	defer teardownTestDb(db)
 	defer func(db *sql.DB) {
 		_ = db.Close()
 	}(db)

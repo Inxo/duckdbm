@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/joho/godotenv"
-	_ "github.com/marcboeker/go-duckdb" // Подключение DuckDB драйвера
+	_ "github.com/marcboeker/go-duckdb/v2" // Подключение DuckDB драйвера
 	"log"
 	"os"
 	"path/filepath"
