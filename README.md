@@ -12,7 +12,7 @@ rolling back migrations, and listing applied migrations.
 - Apply pending migrations to the database.
 - Rollback the last migration or a specified number of migrations.
 - List all applied migrations with timestamps.
-- Sync data via migration. 
+- [Sync data via migration](doc/duckdb_sync_import_guide.md). 
 - Support for macros in migration files, substituting environment variables.
 - Load environment variables from a `.env` file.
 
