@@ -406,7 +406,7 @@ func syncMigration(migrationName string) {
 	}
 
 	// Check if sync table exists, create it if not
-	createSyncTable()
+	//createSyncTable()
 
 	// Locate the migration file
 	migrationFile := filepath.Join("migrations", fmt.Sprintf("%s.sql", migrationName))
@@ -487,7 +487,10 @@ func isSyncTableInitialized() bool {
 		return false
 	}
 	defer func(db *sql.DB) {
-		_ = db.Close()
+		err = db.Close()
+		if err != nil {
+			fmt.Printf("Failed to close the database: %v\n", err)
+		}
 	}(db)
 
 	_, err = db.Query(`SELECT name FROM sqlite_master WHERE type='table' AND name='sync'`)
