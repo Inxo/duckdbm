@@ -372,7 +372,7 @@ func listAppliedMigrations(args []string) {
 	}
 
 	// Query applied migrations
-	query := fmt.Sprintf("SELECT filename, applied_at FROM %s ORDER BY id DESC LIMIT %d", table, limit)
+	query := fmt.Sprintf("SELECT id, filename, applied_at FROM %s ORDER BY id DESC LIMIT %d", table, limit)
 	rows, err := db.Query(query)
 	if err != nil {
 		fmt.Printf("Failed to fetch applied migrations: %v\n", err)
