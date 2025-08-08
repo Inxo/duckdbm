@@ -106,7 +106,7 @@ func connectDB() (*sql.DB, error) {
 	}
 
 	// Подключаем базу данных через ATTACH с именем "attached_db"
-	attachQuery := fmt.Sprintf("ATTACH DATABASE '%s' AS attached_db; USE attached_db;", dbFile)
+	attachQuery := fmt.Sprintf("ATTACH IF NOT EXISTS DATABASE '%s' AS attached_db; USE attached_db;", dbFile)
 	_, err = db.Exec(attachQuery)
 	if err != nil {
 		_ = db.Close()
