@@ -105,8 +105,15 @@ func connectDB() (*sql.DB, error) {
 		return nil, err
 	}
 
+	encKey := ""
+
+	key := os.Getenv("ENC_KEY")
+	if key != "" {
+		encKey = fmt.Sprintf("(ENCRYPTION_KEY '%s')", key)
+	}
+
 	// Подключаем базу данных через ATTACH с именем "attached_db"
-	attachQuery := fmt.Sprintf("USE memory; DETACH DATABASE IF EXISTS attached_db;; ATTACH IF NOT EXISTS DATABASE '%s' AS attached_db; USE attached_db;", dbFile)
+	attachQuery := fmt.Sprintf("USE memory; DETACH DATABASE IF EXISTS attached_db; ATTACH IF NOT EXISTS DATABASE '%s' AS attached_db %s; USE attached_db;", dbFile, encKey)
 	_, err = db.Exec(attachQuery)
 	if err != nil {
 		_ = db.Close()
