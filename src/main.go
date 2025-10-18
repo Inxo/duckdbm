@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
+	_ "github.com/duckdb/duckdb-go/v2" // Подключение DuckDB драйвера
 	"github.com/joho/godotenv"
-	_ "github.com/marcboeker/go-duckdb/v2" // Подключение DuckDB драйвера
 	"log"
 	"os"
 	"path/filepath"
