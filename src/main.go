@@ -139,7 +139,11 @@ func initialize() {
 	}
 
 	// Check if sync table exists, create it if not
-	createSyncTable()
+	_, err = db.Exec(syncTableSQL)
+	if err != nil {
+		fmt.Printf("Error creating sync table: %v\n", err)
+		return
+	}
 
 	fmt.Println("The database has been initialized..")
 }
