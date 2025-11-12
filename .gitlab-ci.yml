@@ -7,7 +7,7 @@ variables:
   TAG_COMMIT: $CI_REGISTRY_IMAGE/$CI_COMMIT_REF_NAME:$CI_COMMIT_SHORT_SHA
 
 build:
-  image: docker:latest
+  image: docker:20.10.17
   stage: build
   tags:
     - docker
