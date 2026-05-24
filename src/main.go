@@ -419,6 +419,27 @@ func listAppliedMigrations(args []string) {
 	}
 }
 
+func startSpinner(name string) chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+		start := time.Now()
+		i := 0
+		for {
+			select {
+			case <-done:
+				fmt.Print("\r\033[K")
+				return
+			default:
+				fmt.Printf("\r%s Syncing %s... (%.1fs)", frames[i%len(frames)], name, time.Since(start).Seconds())
+				i++
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}()
+	return done
+}
+
 // Sync a specific migration without recording in the migrations table
 func syncMigration(migrationName string) {
 	// Check if migrations table exists
@@ -461,18 +482,20 @@ func syncMigration(migrationName string) {
 		_ = db.Close()
 	}(db)
 
-	fmt.Printf("Start sync: %s\n", migrationName)
+	done := startSpinner(migrationName)
 	start := time.Now()
 	_, err = db.Exec(sqlStatements)
 	durationMs := time.Since(start).Milliseconds()
+	close(done)
+	time.Sleep(50 * time.Millisecond)
 	if err != nil {
-		fmt.Printf("Error applying migration %s: %v\n", migrationName, err)
+		fmt.Printf("✗ Error syncing %s: %v\n", migrationName, err)
 		return
 	}
 
 	// Record the migration in the sync table
 	recordSyncMigration(db, migrationName, durationMs)
-	fmt.Printf("Successfully synced migration: %s (%.3fs)\n", migrationName, float64(durationMs)/1000)
+	fmt.Printf("✓ Successfully synced: %s (%.3fs)\n", migrationName, float64(durationMs)/1000)
 }
 
 // Create the sync table if it doesn't exist
