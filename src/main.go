@@ -59,7 +59,7 @@ func main() {
 	}
 
 	if len(flag.Args()) < 1 {
-		fmt.Println("Usage: duckdbm [init|create|apply|rollback|list|sync] [options]")
+		fmt.Println("Usage: duckdbm [init|create|apply|rollback|list|sync|validate] [options]")
 		return
 	}
 
@@ -96,6 +96,8 @@ func main() {
 			return
 		}
 		syncMigration(flag.Args()[1])
+	case "validate":
+		validateMigrations(flag.Args())
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 	}
@@ -499,6 +501,102 @@ func recordSyncMigration(db *sql.DB, migrationName string, durationMs int64) {
 	if err != nil {
 		fmt.Printf("Error recording synced migration: %v\n", err)
 	}
+}
+
+func validateMigrations(args []string) {
+	db, err := sql.Open("duckdb", "")
+	if err != nil {
+		fmt.Printf("Failed to open validation database: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() { _ = db.Close() }()
+
+	var target string
+	if len(args) > 1 {
+		target = args[1]
+	}
+
+	files, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		fmt.Printf("Failed to read migrations directory: %v\n", err)
+		os.Exit(1)
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
+
+	hasErrors := false
+	fmt.Println("Validating migrations...")
+
+	for _, file := range files {
+		if !strings.HasSuffix(file.Name(), ".sql") {
+			continue
+		}
+		if target != "" && !strings.Contains(file.Name(), target) {
+			continue
+		}
+
+		filePath := filepath.Join(migrationsDir, file.Name())
+		sqlContent, err := os.ReadFile(filePath)
+		if err != nil {
+			fmt.Printf("  ✗ %s — failed to read: %v\n", file.Name(), err)
+			hasErrors = true
+			continue
+		}
+
+		processed, err := processMacros(string(sqlContent))
+		if err != nil {
+			fmt.Printf("  ✗ %s — macro error: %v\n", file.Name(), err)
+			hasErrors = true
+			continue
+		}
+
+		parts := strings.Split(processed, "-- ROLLBACK")
+		migrateSQL := strings.TrimSpace(strings.TrimPrefix(parts[0], "-- MIGRATE"))
+
+		if verr := validateSection(db, migrateSQL); verr != nil {
+			fmt.Printf("  ✗ %s — %v\n", file.Name(), verr)
+			hasErrors = true
+			continue
+		}
+
+		if len(parts) > 1 {
+			rollbackSQL := strings.TrimSpace(parts[1])
+			if rollbackSQL != "" {
+				if verr := validateSection(db, rollbackSQL); verr != nil {
+					fmt.Printf("  ✗ %s (ROLLBACK) — %v\n", file.Name(), verr)
+					hasErrors = true
+					continue
+				}
+			}
+		}
+
+		fmt.Printf("  ✓ %s\n", file.Name())
+	}
+
+	if hasErrors {
+		fmt.Println("\nValidation failed.")
+		os.Exit(1)
+	}
+	fmt.Println("\nAll migrations are valid.")
+}
+
+func validateSection(db *sql.DB, section string) error {
+	stmts := strings.Split(section, ";")
+	for _, stmt := range stmts {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" || strings.HasPrefix(stmt, "--") {
+			continue
+		}
+		_, err := db.Exec("EXPLAIN " + stmt)
+		if err != nil {
+			msg := err.Error()
+			if strings.Contains(msg, "Parser Error") ||
+				strings.Contains(msg, "syntax error") ||
+				strings.Contains(msg, "unexpected token") {
+				return fmt.Errorf("syntax error: %v", err)
+			}
+		}
+	}
+	return nil
 }
 
 // Check if the ынтс table is initialized
