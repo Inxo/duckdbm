@@ -1,25 +1,28 @@
 
 # DuckDB Migration Tool
 
-A console-based migration tool for managing database schema changes in DuckDB. 
-It provides commands for initializing the database, creating migrations, applying migrations, 
-rolling back migrations, and listing applied migrations.
+A console-based migration tool for managing database schema changes in DuckDB.
+It provides commands for initializing the database, creating migrations, applying migrations,
+rolling back migrations, listing applied migrations, and importing data from external sources.
 
 ## Features
 
-- Initialize the database with a migrations table.
+- Initialize the database with a migrations and sync table.
 - Create new migration files with an optional rollback section.
-- Apply pending migrations to the database.
+- Apply pending migrations to the database with execution time tracking.
 - Rollback the last migration or a specified number of migrations.
-- List all applied migrations with timestamps.
-- [Sync data via migration](doc/duckdb_sync_import_guide.md). 
+- List all applied migrations with timestamps and duration.
+- [Sync data via migration](doc/duckdb_sync_import_guide.md) — import from MySQL, PostgreSQL, CSV, and more.
+- Validate SQL syntax of migration files before applying.
+- Progress spinner with elapsed time during sync operations.
+- Webhook notifications on apply/sync completion (success or error).
 - Support for macros in migration files, substituting environment variables.
 - Load environment variables from a `.env` file.
 
 ## Requirements
 
 - Go (Golang) installed.
-- DuckDB installed and accessible via the `github.com/marcboeker/go-duckdb` driver.
+- DuckDB driver: `github.com/duckdb/duckdb-go/v2`.
 
 ## Usage
 
@@ -35,13 +38,15 @@ rolling back migrations, and listing applied migrations.
 ### Commands
 
 #### 1. Initialize the Database
-Creates the migrations table in the specified database file.
+
+Creates the `migrations` and `sync` tables in the specified database file.
 
 ```bash
 duckdbm -db=your_database.db init
 ```
 
 #### 2. Create a Migration
+
 Generates a new migration file in the `migrations` directory.
 
 ```bash
@@ -56,13 +61,21 @@ duckdbm -db=your_database.db create add_users_table
 The file `migrations/001_add_users_table.sql` will be created.
 
 #### 3. Apply Migrations
-Applies all pending migrations to the database.
+
+Applies all pending migrations to the database. Execution time is recorded for each migration.
 
 ```bash
 duckdbm -db=your_database.db apply
 ```
 
+Output example:
+```
+Migration applied: 001_add_users_table.sql (12ms)
+Migration applied: 002_add_orders_table.sql (8ms)
+```
+
 #### 4. Rollback Migrations
+
 Rolls back the last applied migration or a specified number of migrations.
 
 Rollback the last migration:
@@ -76,17 +89,65 @@ duckdbm -db=your_database.db rollback 3
 ```
 
 #### 5. List Applied Migrations
-Displays all applied migrations.
+
+Displays applied migrations with timestamps and execution duration.
 
 ```bash
 duckdbm -db=your_database.db list
 ```
 
-#### 6. Sync a Migration
+Output example:
+```
+Applied migrations:
+ID  Filename                    Applied At            Duration
+----------------------------------------------------------------
+2   002_add_orders_table.sql    2025-05-24 10:01:00   8ms
+1   001_add_users_table.sql     2025-05-24 10:00:00   12ms
+```
 
-The `sync` command applies a specific migration without recording it in the `migrations` table. Instead, the migration's application is recorded in a separate `sync` table.
+List the `sync` table instead:
+```bash
+duckdbm -db=your_database.db list sync
+```
 
-"Possibility to update data from other sources/databases using the migration mechanism. Synchronization can be scheduled.
+Limit results:
+```bash
+duckdbm -db=your_database.db list migrations 20
+```
+
+#### 6. Validate Migrations
+
+Validates SQL syntax of all migration files without modifying the database.
+Useful in CI pipelines to catch errors before deployment.
+
+```bash
+duckdbm validate
+```
+
+Validate a specific file (by partial name match):
+```bash
+duckdbm validate 003_import_orders
+```
+
+Output example:
+```
+Validating migrations...
+  ✓ 001_add_users_table.sql
+  ✓ 002_add_orders_table.sql
+  ✗ 003_import_orders.sql — syntax error: ...
+
+Validation failed.
+```
+
+Exits with code `1` if any file is invalid — CI-friendly.
+
+#### 7. Sync a Migration
+
+The `sync` command applies a specific migration without recording it in the `migrations` table.
+Instead, the execution is recorded in a separate `sync` table.
+
+Use this to import data from external sources on a schedule.
+A progress spinner with elapsed time is shown during execution.
 
 ```bash
 duckdbm -db=your_database.db sync migration_name
@@ -97,41 +158,53 @@ Example:
 duckdbm -db=your_database.db sync 002_sync_users
 ```
 
-Example migration to sync users from Mysql `002_sync_users.sql`:
+Output example:
+```
+⠼ Syncing 002_sync_users... (3.2s)
+✓ Successfully synced: 002_sync_users (5.841s)
+```
+
+Example migration to sync users from MySQL `002_sync_users.sql`:
 ```sql
 -- MIGRATE
 INSTALL mysql;
 LOAD mysql;
-CREATE
-SECRET IF NOT EXISTS
-( TYPE MYSQL,
+CREATE SECRET IF NOT EXISTS (
+    TYPE MYSQL,
     HOST '{{MYSQL_HOST}}',
     PORT 3306,
     DATABASE {{MYSQL_DB}},
     USER '{{MYSQL_USER}}',
-    PASSWORD '{{MYSQL_PASSWORD}}');
+    PASSWORD '{{MYSQL_PASSWORD}}'
+);
 ATTACH IF NOT EXISTS 'database={{MYSQL_DB}}' AS mysql_db (TYPE MYSQL);
 
-INSERT OR
-REPLACE INTO users
-SELECT *
-FROM mysql_db.default.users;
+INSERT OR REPLACE INTO users
+SELECT * FROM mysql_db.default.users;
 
 -- ROLLBACK
 TRUNCATE TABLE users;
 ```
 
-Also, this is useful for re-applying a migration without affecting the migration history.
-
 ### Migration Files
-#### Using Macros in Migration Files
 
-Migration files are `.sql` files located in the `migrations` directory. Can include macros in the format `{{ENV_VAR}}`.
-These macros will be replaced with the values of the corresponding environment variables at runtime.
+#### File Format
 
-Each file can include a `-- ROLLBACK` section for rollback support.
+Migration files are `.sql` files located in the `migrations` directory.
+Each file has two sections separated by `-- ROLLBACK`:
 
-#### Example Migration File with Macros
+```sql
+-- MIGRATE
+-- SQL statements to apply the migration
+
+-- ROLLBACK
+-- SQL statements to undo the migration
+```
+
+#### Using Macros
+
+Migration files can include macros in the format `{{ENV_VAR}}`.
+These are replaced with environment variable values at runtime.
 
 ```sql
 -- MIGRATE
@@ -144,43 +217,57 @@ CREATE TABLE {{TABLE_NAME}} (
 DROP TABLE {{TABLE_NAME}};
 ```
 
-If the environment variable `TABLE_NAME` is set to `users`, the macro `{{TABLE_NAME}}` will be replaced with `users`.
+If `TABLE_NAME=users` is set, `{{TABLE_NAME}}` is replaced with `users`.
 
-#### Setting Environment Variables
+### Environment Variables
 
-You can define environment variables directly in the terminal or use a `.env` file.
+| Variable       | Description                                          |
+|----------------|------------------------------------------------------|
+| `DATABASE`     | Database file path (alternative to `-db` flag)       |
+| `ENC_KEY`      | Encryption key for DuckDB encrypted databases        |
+| `WEBHOOK_URL`  | HTTP endpoint for completion notifications (optional)|
+
+#### Webhook Notifications
+
+Set `WEBHOOK_URL` to receive an HTTP POST after each `apply` or `sync` completes.
+
+```env
+WEBHOOK_URL=https://hooks.slack.com/services/xxx
+```
+
+Payload format:
+```json
+{
+  "event":       "sync",
+  "status":      "success",
+  "name":        "002_sync_users",
+  "duration_ms": 5841,
+  "timestamp":   "2025-05-24T10:00:00Z",
+  "error":       ""
+}
+```
+
+- `event`: `"apply"` or `"sync"`
+- `status`: `"success"` or `"error"`
+- Webhook failures are warnings only — they never fail the main operation.
+- Timeout: 5 seconds.
+
+Works with any HTTP endpoint: Slack incoming webhooks, [Healthchecks.io](https://healthchecks.io), custom APIs.
 
 ### Using a `.env` File
 
-The tool supports loading environment variables from a `.env` file located in the root directory of your project.
-
-#### Example `.env` File
-
 ```env
+DATABASE=mydata.db
 TABLE_NAME=users
-COLUMN_NAME=username
+MYSQL_HOST=db.example.com
+MYSQL_DB=production
+MYSQL_USER=reader
+MYSQL_PASSWORD=secret
+WEBHOOK_URL=https://hooks.example.com/notify
 ```
 
-When the tool runs, it will load the `.env` file and use the defined variables to replace macros in migration files.
-
-#### Precedence of Variables
-
-- Environment variables set in the system take precedence over `.env` variables.
-- If a macro refers to an undefined variable, it will be replaced with an empty string.
-
-### Example Workflow
-
-1. **Set Up Your `.env` File**:
-   ```env
-   TABLE_NAME=users
-   ```
-
-2. **Run the Migration Tool**:
-   ```bash
-   duckdbm -db=your_database.db apply
-   ```
-
-The `{{TABLE_NAME}}` macro in migration files will now be replaced with the value from the `.env` file (`users`).
+System environment variables take precedence over `.env` values.
+If a macro refers to an undefined variable, it is replaced with an empty string.
 
 ### Directory Structure
 
@@ -190,7 +277,7 @@ The `{{TABLE_NAME}}` macro in migration files will now be replaced with the valu
 ├── .env
 ├── migrations/
 │   ├── 001_add_users_table.sql
-│   ├── 003_sync_users.sql
+│   ├── 002_sync_users.sql
 │   └── ...
 ```
 
