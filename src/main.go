@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/json"
 	"flag"
 	"fmt"
 	_ "github.com/duckdb/duckdb-go/v2" // Подключение DuckDB драйвера
 	"github.com/joho/godotenv"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -254,6 +257,7 @@ func applyMigrations() {
 		_, err = db.Exec(migrationSQL)
 		durationMs := time.Since(start).Milliseconds()
 		if err != nil {
+			sendWebhook("apply", "error", file.Name(), durationMs, err.Error())
 			fmt.Printf("Failed to apply migration %s: %v\n", file.Name(), err)
 			break
 		}
@@ -264,6 +268,7 @@ func applyMigrations() {
 			break
 		}
 
+		sendWebhook("apply", "success", file.Name(), durationMs, "")
 		fmt.Printf("Migration applied: %s (%dms)\n", file.Name(), durationMs)
 	}
 }
@@ -489,12 +494,14 @@ func syncMigration(migrationName string) {
 	close(done)
 	time.Sleep(50 * time.Millisecond)
 	if err != nil {
+		sendWebhook("sync", "error", migrationName, durationMs, err.Error())
 		fmt.Printf("✗ Error syncing %s: %v\n", migrationName, err)
 		return
 	}
 
 	// Record the migration in the sync table
 	recordSyncMigration(db, migrationName, durationMs)
+	sendWebhook("sync", "success", migrationName, durationMs, "")
 	fmt.Printf("✓ Successfully synced: %s (%.3fs)\n", migrationName, float64(durationMs)/1000)
 }
 
@@ -620,6 +627,42 @@ func validateSection(db *sql.DB, section string) error {
 		}
 	}
 	return nil
+}
+
+type webhookPayload struct {
+	Event      string `json:"event"`
+	Status     string `json:"status"`
+	Name       string `json:"name"`
+	DurationMs int64  `json:"duration_ms"`
+	Timestamp  string `json:"timestamp"`
+	Error      string `json:"error"`
+}
+
+func sendWebhook(event, status, name string, durationMs int64, errMsg string) {
+	url := os.Getenv("WEBHOOK_URL")
+	if url == "" {
+		return
+	}
+	payload := webhookPayload{
+		Event:      event,
+		Status:     status,
+		Name:       name,
+		DurationMs: durationMs,
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		Error:      errMsg,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		fmt.Printf("Warning: webhook marshal failed: %v\n", err)
+		return
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		fmt.Printf("Warning: webhook delivery failed: %v\n", err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
 }
 
 // Check if the ынтс table is initialized
