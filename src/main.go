@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/json"
 	"flag"
 	"fmt"
 	_ "github.com/duckdb/duckdb-go/v2" // Подключение DuckDB драйвера
 	"github.com/joho/godotenv"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,7 +24,8 @@ CREATE SEQUENCE IF NOT EXISTS attached_db.seq_id START 1;
 CREATE TABLE IF NOT EXISTS attached_db.migrations (
     id INTEGER PRIMARY KEY DEFAULT nextval('attached_db.seq_id'),
     filename TEXT NOT NULL UNIQUE,
-    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    duration_ms INTEGER
 );
 `
 	syncTableSQL = `
@@ -29,7 +33,8 @@ CREATE SEQUENCE IF NOT EXISTS attached_db.seq_sync_id START 1;
 CREATE TABLE IF NOT EXISTS attached_db.sync (
     id INTEGER PRIMARY KEY DEFAULT nextval('attached_db.seq_sync_id'),
     filename TEXT NOT NULL,
-    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    duration_ms INTEGER
 );
 `
 )
@@ -57,7 +62,7 @@ func main() {
 	}
 
 	if len(flag.Args()) < 1 {
-		fmt.Println("Usage: duckdbm [init|create|apply|rollback|list|sync] [options]")
+		fmt.Println("Usage: duckdbm [init|create|apply|rollback|list|sync|validate] [options]")
 		return
 	}
 
@@ -94,6 +99,8 @@ func main() {
 			return
 		}
 		syncMigration(flag.Args()[1])
+	case "validate":
+		validateMigrations(flag.Args())
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 	}
@@ -246,19 +253,23 @@ func applyMigrations() {
 		parts := strings.Split(string(processedContent), "-- ROLLBACK")
 		migrationSQL := strings.TrimSpace(parts[0]) // Only apply the migration section
 
+		start := time.Now()
 		_, err = db.Exec(migrationSQL)
+		durationMs := time.Since(start).Milliseconds()
 		if err != nil {
+			sendWebhook("apply", "error", file.Name(), durationMs, err.Error())
 			fmt.Printf("Failed to apply migration %s: %v\n", file.Name(), err)
 			break
 		}
 
-		_, err = db.Exec("INSERT INTO attached_db.migrations (filename) VALUES (?)", file.Name())
+		_, err = db.Exec("INSERT INTO attached_db.migrations (filename, duration_ms) VALUES (?, ?)", file.Name(), durationMs)
 		if err != nil {
 			fmt.Printf("Failed to log migration %s: %v\n", file.Name(), err)
 			break
 		}
 
-		fmt.Printf("Migration applied: %s\n", file.Name())
+		sendWebhook("apply", "success", file.Name(), durationMs, "")
+		fmt.Printf("Migration applied: %s (%dms)\n", file.Name(), durationMs)
 	}
 }
 
@@ -383,7 +394,7 @@ func listAppliedMigrations(args []string) {
 	}
 
 	// Query applied migrations
-	query := fmt.Sprintf("SELECT id, filename, applied_at FROM %s ORDER BY id DESC LIMIT %d", table, limit)
+	query := fmt.Sprintf("SELECT id, filename, applied_at, duration_ms FROM %s ORDER BY id DESC LIMIT %d", table, limit)
 	rows, err := db.Query(query)
 	if err != nil {
 		fmt.Printf("Failed to fetch applied migrations: %v\n", err)
@@ -393,19 +404,45 @@ func listAppliedMigrations(args []string) {
 
 	// Display applied migrations
 	fmt.Printf("Applied %s:\n", table)
-	fmt.Println("ID\tFilename\t\tApplied At")
-	fmt.Println("------------------------------------------------")
+	fmt.Println("ID\tFilename\t\tApplied At\t\tDuration")
+	fmt.Println("----------------------------------------------------------------")
 	for rows.Next() {
 		var id int
 		var filename string
 		var appliedAt time.Time
-		err = rows.Scan(&id, &filename, &appliedAt)
+		var durationMs sql.NullInt64
+		err = rows.Scan(&id, &filename, &appliedAt, &durationMs)
 		if err != nil {
 			fmt.Printf("Failed to read migration row: %v\n", err)
 			continue
 		}
-		fmt.Printf("%d\t%s\t%s\n", id, filename, appliedAt.Format("2006-01-02 15:04:05"))
+		durStr := "-"
+		if durationMs.Valid {
+			durStr = fmt.Sprintf("%dms", durationMs.Int64)
+		}
+		fmt.Printf("%d\t%s\t%s\t%s\n", id, filename, appliedAt.Format("2006-01-02 15:04:05"), durStr)
 	}
+}
+
+func startSpinner(name string) chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+		start := time.Now()
+		i := 0
+		for {
+			select {
+			case <-done:
+				fmt.Print("\r\033[K")
+				return
+			default:
+				fmt.Printf("\r%s Syncing %s... (%.1fs)", frames[i%len(frames)], name, time.Since(start).Seconds())
+				i++
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}()
+	return done
 }
 
 // Sync a specific migration without recording in the migrations table
@@ -450,16 +487,22 @@ func syncMigration(migrationName string) {
 		_ = db.Close()
 	}(db)
 
-	fmt.Printf("Start sync: %s", migrationName)
+	done := startSpinner(migrationName)
+	start := time.Now()
 	_, err = db.Exec(sqlStatements)
+	durationMs := time.Since(start).Milliseconds()
+	close(done)
+	time.Sleep(50 * time.Millisecond)
 	if err != nil {
-		fmt.Printf("Error applying migration %s: %v\n", migrationName, err)
+		sendWebhook("sync", "error", migrationName, durationMs, err.Error())
+		fmt.Printf("✗ Error syncing %s: %v\n", migrationName, err)
 		return
 	}
 
 	// Record the migration in the sync table
-	recordSyncMigration(db, migrationName)
-	fmt.Printf("Successfully synced migration: %s\n", migrationName)
+	recordSyncMigration(db, migrationName, durationMs)
+	sendWebhook("sync", "success", migrationName, durationMs, "")
+	fmt.Printf("✓ Successfully synced: %s (%.3fs)\n", migrationName, float64(durationMs)/1000)
 }
 
 // Create the sync table if it doesn't exist
@@ -480,14 +523,146 @@ func createSyncTable() {
 }
 
 // Record the migration in the sync table
-func recordSyncMigration(db *sql.DB, migrationName string) {
+func recordSyncMigration(db *sql.DB, migrationName string, durationMs int64) {
 	_, err := db.Exec(`
-		INSERT INTO attached_db.sync (filename, applied_at)
-		VALUES (?, ?)
-	`, migrationName, time.Now().UTC())
+		INSERT INTO attached_db.sync (filename, applied_at, duration_ms)
+		VALUES (?, ?, ?)
+	`, migrationName, time.Now().UTC(), durationMs)
 	if err != nil {
 		fmt.Printf("Error recording synced migration: %v\n", err)
 	}
+}
+
+func validateMigrations(args []string) {
+	db, err := sql.Open("duckdb", "")
+	if err != nil {
+		fmt.Printf("Failed to open validation database: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() { _ = db.Close() }()
+
+	var target string
+	if len(args) > 1 {
+		target = args[1]
+	}
+
+	files, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		fmt.Printf("Failed to read migrations directory: %v\n", err)
+		os.Exit(1)
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
+
+	hasErrors := false
+	fmt.Println("Validating migrations...")
+
+	for _, file := range files {
+		if !strings.HasSuffix(file.Name(), ".sql") {
+			continue
+		}
+		if target != "" && !strings.Contains(file.Name(), target) {
+			continue
+		}
+
+		filePath := filepath.Join(migrationsDir, file.Name())
+		sqlContent, err := os.ReadFile(filePath)
+		if err != nil {
+			fmt.Printf("  ✗ %s — failed to read: %v\n", file.Name(), err)
+			hasErrors = true
+			continue
+		}
+
+		processed, err := processMacros(string(sqlContent))
+		if err != nil {
+			fmt.Printf("  ✗ %s — macro error: %v\n", file.Name(), err)
+			hasErrors = true
+			continue
+		}
+
+		parts := strings.Split(processed, "-- ROLLBACK")
+		migrateSQL := strings.TrimSpace(strings.TrimPrefix(parts[0], "-- MIGRATE"))
+
+		if verr := validateSection(db, migrateSQL); verr != nil {
+			fmt.Printf("  ✗ %s — %v\n", file.Name(), verr)
+			hasErrors = true
+			continue
+		}
+
+		if len(parts) > 1 {
+			rollbackSQL := strings.TrimSpace(parts[1])
+			if rollbackSQL != "" {
+				if verr := validateSection(db, rollbackSQL); verr != nil {
+					fmt.Printf("  ✗ %s (ROLLBACK) — %v\n", file.Name(), verr)
+					hasErrors = true
+					continue
+				}
+			}
+		}
+
+		fmt.Printf("  ✓ %s\n", file.Name())
+	}
+
+	if hasErrors {
+		fmt.Println("\nValidation failed.")
+		os.Exit(1)
+	}
+	fmt.Println("\nAll migrations are valid.")
+}
+
+func validateSection(db *sql.DB, section string) error {
+	stmts := strings.Split(section, ";")
+	for _, stmt := range stmts {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" || strings.HasPrefix(stmt, "--") {
+			continue
+		}
+		_, err := db.Exec("EXPLAIN " + stmt)
+		if err != nil {
+			msg := err.Error()
+			if strings.Contains(msg, "Parser Error") ||
+				strings.Contains(msg, "syntax error") ||
+				strings.Contains(msg, "unexpected token") {
+				return fmt.Errorf("syntax error: %v", err)
+			}
+		}
+	}
+	return nil
+}
+
+type webhookPayload struct {
+	Event      string `json:"event"`
+	Status     string `json:"status"`
+	Name       string `json:"name"`
+	DurationMs int64  `json:"duration_ms"`
+	Timestamp  string `json:"timestamp"`
+	Error      string `json:"error"`
+}
+
+func sendWebhook(event, status, name string, durationMs int64, errMsg string) {
+	url := os.Getenv("WEBHOOK_URL")
+	if url == "" {
+		return
+	}
+	payload := webhookPayload{
+		Event:      event,
+		Status:     status,
+		Name:       name,
+		DurationMs: durationMs,
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		Error:      errMsg,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		fmt.Printf("Warning: webhook marshal failed: %v\n", err)
+		return
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		fmt.Printf("Warning: webhook delivery failed: %v\n", err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
 }
 
 // Check if the ынтс table is initialized
