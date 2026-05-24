@@ -21,7 +21,8 @@ CREATE SEQUENCE IF NOT EXISTS attached_db.seq_id START 1;
 CREATE TABLE IF NOT EXISTS attached_db.migrations (
     id INTEGER PRIMARY KEY DEFAULT nextval('attached_db.seq_id'),
     filename TEXT NOT NULL UNIQUE,
-    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    duration_ms INTEGER
 );
 `
 	syncTableSQL = `
@@ -29,7 +30,8 @@ CREATE SEQUENCE IF NOT EXISTS attached_db.seq_sync_id START 1;
 CREATE TABLE IF NOT EXISTS attached_db.sync (
     id INTEGER PRIMARY KEY DEFAULT nextval('attached_db.seq_sync_id'),
     filename TEXT NOT NULL,
-    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    duration_ms INTEGER
 );
 `
 )
@@ -246,19 +248,21 @@ func applyMigrations() {
 		parts := strings.Split(string(processedContent), "-- ROLLBACK")
 		migrationSQL := strings.TrimSpace(parts[0]) // Only apply the migration section
 
+		start := time.Now()
 		_, err = db.Exec(migrationSQL)
+		durationMs := time.Since(start).Milliseconds()
 		if err != nil {
 			fmt.Printf("Failed to apply migration %s: %v\n", file.Name(), err)
 			break
 		}
 
-		_, err = db.Exec("INSERT INTO attached_db.migrations (filename) VALUES (?)", file.Name())
+		_, err = db.Exec("INSERT INTO attached_db.migrations (filename, duration_ms) VALUES (?, ?)", file.Name(), durationMs)
 		if err != nil {
 			fmt.Printf("Failed to log migration %s: %v\n", file.Name(), err)
 			break
 		}
 
-		fmt.Printf("Migration applied: %s\n", file.Name())
+		fmt.Printf("Migration applied: %s (%dms)\n", file.Name(), durationMs)
 	}
 }
 
@@ -383,7 +387,7 @@ func listAppliedMigrations(args []string) {
 	}
 
 	// Query applied migrations
-	query := fmt.Sprintf("SELECT id, filename, applied_at FROM %s ORDER BY id DESC LIMIT %d", table, limit)
+	query := fmt.Sprintf("SELECT id, filename, applied_at, duration_ms FROM %s ORDER BY id DESC LIMIT %d", table, limit)
 	rows, err := db.Query(query)
 	if err != nil {
 		fmt.Printf("Failed to fetch applied migrations: %v\n", err)
@@ -393,18 +397,23 @@ func listAppliedMigrations(args []string) {
 
 	// Display applied migrations
 	fmt.Printf("Applied %s:\n", table)
-	fmt.Println("ID\tFilename\t\tApplied At")
-	fmt.Println("------------------------------------------------")
+	fmt.Println("ID\tFilename\t\tApplied At\t\tDuration")
+	fmt.Println("----------------------------------------------------------------")
 	for rows.Next() {
 		var id int
 		var filename string
 		var appliedAt time.Time
-		err = rows.Scan(&id, &filename, &appliedAt)
+		var durationMs sql.NullInt64
+		err = rows.Scan(&id, &filename, &appliedAt, &durationMs)
 		if err != nil {
 			fmt.Printf("Failed to read migration row: %v\n", err)
 			continue
 		}
-		fmt.Printf("%d\t%s\t%s\n", id, filename, appliedAt.Format("2006-01-02 15:04:05"))
+		durStr := "-"
+		if durationMs.Valid {
+			durStr = fmt.Sprintf("%dms", durationMs.Int64)
+		}
+		fmt.Printf("%d\t%s\t%s\t%s\n", id, filename, appliedAt.Format("2006-01-02 15:04:05"), durStr)
 	}
 }
 
@@ -450,16 +459,18 @@ func syncMigration(migrationName string) {
 		_ = db.Close()
 	}(db)
 
-	fmt.Printf("Start sync: %s", migrationName)
+	fmt.Printf("Start sync: %s\n", migrationName)
+	start := time.Now()
 	_, err = db.Exec(sqlStatements)
+	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
 		fmt.Printf("Error applying migration %s: %v\n", migrationName, err)
 		return
 	}
 
 	// Record the migration in the sync table
-	recordSyncMigration(db, migrationName)
-	fmt.Printf("Successfully synced migration: %s\n", migrationName)
+	recordSyncMigration(db, migrationName, durationMs)
+	fmt.Printf("Successfully synced migration: %s (%.3fs)\n", migrationName, float64(durationMs)/1000)
 }
 
 // Create the sync table if it doesn't exist
@@ -480,11 +491,11 @@ func createSyncTable() {
 }
 
 // Record the migration in the sync table
-func recordSyncMigration(db *sql.DB, migrationName string) {
+func recordSyncMigration(db *sql.DB, migrationName string, durationMs int64) {
 	_, err := db.Exec(`
-		INSERT INTO attached_db.sync (filename, applied_at)
-		VALUES (?, ?)
-	`, migrationName, time.Now().UTC())
+		INSERT INTO attached_db.sync (filename, applied_at, duration_ms)
+		VALUES (?, ?, ?)
+	`, migrationName, time.Now().UTC(), durationMs)
 	if err != nil {
 		fmt.Printf("Error recording synced migration: %v\n", err)
 	}
