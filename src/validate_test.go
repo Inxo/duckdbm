@@ -15,7 +15,12 @@ func openMemDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open in-memory duckdb: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() {
+		err := db.Close()
+		if err != nil {
+			return
+		}
+	})
 	return db
 }
 
@@ -90,7 +95,7 @@ func TestValidateMigrations_AllValid(t *testing.T) {
 	}
 
 	// Happy path: should print success and not call os.Exit
-	validateMigrations([]string{"validate"})
+	validateMigrations([]string{"validate"}, migrationsDir)
 }
 
 func TestValidateMigrations_FiltersByTarget(t *testing.T) {
@@ -112,7 +117,7 @@ func TestValidateMigrations_FiltersByTarget(t *testing.T) {
 	}
 
 	// Targeting "users" — should pass without touching 002_orders.sql
-	validateMigrations([]string{"validate", "users"})
+	validateMigrations([]string{"validate", "users"}, migrationsDir)
 }
 
 func TestValidateMigrations_EmptyDirectory(t *testing.T) {
@@ -122,7 +127,7 @@ func TestValidateMigrations_EmptyDirectory(t *testing.T) {
 	t.Cleanup(func() { migrationsDir = prevDir })
 
 	// No files — should print success without panic
-	validateMigrations([]string{"validate"})
+	validateMigrations([]string{"validate"}, migrationsDir)
 }
 
 func TestValidateMigrations_IgnoresNonSQLFiles(t *testing.T) {
@@ -136,5 +141,5 @@ func TestValidateMigrations_IgnoresNonSQLFiles(t *testing.T) {
 		t.Fatalf("write README: %v", err)
 	}
 
-	validateMigrations([]string{"validate"})
+	validateMigrations([]string{"validate"}, migrationsDir)
 }
