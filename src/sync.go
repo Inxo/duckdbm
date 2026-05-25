@@ -36,7 +36,7 @@ func syncMigration(migrationName string) {
 		return
 	}
 
-	migrationFile := filepath.Join("migrations", fmt.Sprintf("%s.sql", migrationName))
+	migrationFile := filepath.Join(migrationsDir, fmt.Sprintf("%s.sql", migrationName))
 	if _, err := os.Stat(migrationFile); os.IsNotExist(err) {
 		fmt.Printf("Error: Migration file %s not found.\n", migrationFile)
 		return
