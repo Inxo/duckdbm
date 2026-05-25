@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	_ "github.com/duckdb/duckdb-go/v2" // Подключение DuckDB драйвера
-	"github.com/joho/godotenv"
 	"log"
 	"net/http"
 	"os"
@@ -16,6 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	_ "github.com/duckdb/duckdb-go/v2" // Подключение DuckDB драйвера
+	"github.com/joho/godotenv"
 )
 
 const (
@@ -100,7 +101,8 @@ func main() {
 		}
 		syncMigration(flag.Args()[1])
 	case "validate":
-		validateMigrations(flag.Args())
+		validateMigrations(flag.Args(), migrationsDir)
+		validateMigrations(flag.Args(), migrationsDir+"/sync")
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 	}
@@ -533,7 +535,7 @@ func recordSyncMigration(db *sql.DB, migrationName string, durationMs int64) {
 	}
 }
 
-func validateMigrations(args []string) {
+func validateMigrations(args []string, dir string) {
 	db, err := sql.Open("duckdb", "")
 	if err != nil {
 		fmt.Printf("Failed to open validation database: %v\n", err)
@@ -546,7 +548,7 @@ func validateMigrations(args []string) {
 		target = args[1]
 	}
 
-	files, err := os.ReadDir(migrationsDir)
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		fmt.Printf("Failed to read migrations directory: %v\n", err)
 		os.Exit(1)
@@ -554,7 +556,7 @@ func validateMigrations(args []string) {
 	sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
 
 	hasErrors := false
-	fmt.Println("Validating migrations...")
+	fmt.Println("Validating migrations... " + dir)
 
 	for _, file := range files {
 		if !strings.HasSuffix(file.Name(), ".sql") {
